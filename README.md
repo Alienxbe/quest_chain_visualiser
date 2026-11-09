@@ -16,6 +16,13 @@ Quest data comes from the open-source [Questie](https://github.com/Questie/Quest
 
 The importer uses QuestieDB's Forever **release build**, not the raw `data/Forever` files, because Questie's frequent Forever fixes are only applied in the build. By default it takes the rolling `preview` release, which is rebuilt from QuestieDB's latest commit; pass `-- --stable` to use the latest versioned release instead. Quest XP comes from the same build (Questie's QuestXP tables, partly measured in-game). Reward items and reputation are shown too. Money rewards aren't in Questie's data.
 
+The **Map** tab is a seamless terrain map of each continent (Eastern Kingdoms, Kalimdor, Zephras Isle), stitched from the WoW Forever client's minimap tiles. Hover a zone to see its exact outline and level range, and click it to zoom in. Zoomed out, the map labels zones with their level ranges; zoomed into a zone, it shows its subzone names instead. `npm run import-maps` builds it from the client files published by [wago.tools](https://wago.tools) (product `wowf`):
+
+- terrain tiles come from each continent's minimap textures, cut into zoom levels in `public/data/terrain/` (about 30 MB);
+- zone and subzone shapes come from the area id of every ~33-yard terrain chunk, read from the map tiles' terrain files, and go in `public/data/maps/`.
+
+The first run downloads about 1 GB from wago.tools. Only small derived files are cached, in `.cache/maps/derived/`, keyed by the game's file ids, so later runs only download new or changed files. Zone level ranges come from the quest import: they are the usual levels (5th to 95th percentile, weighted by spawn count) of each zone's hostile, normal-rank mobs in Questie's data.
+
 Item and quest links point to [Wowhead's Forever database](https://www.wowhead.com/forever/), and Wowhead's tooltip script shows the in-game tooltip on hover.
 
 ## Run locally
@@ -23,6 +30,7 @@ Item and quest links point to [Wowhead's Forever database](https://www.wowhead.c
 ```sh
 npm install
 npm run import-data   # downloads Questie data (-- --offline reuses .cache/, -- --stable uses the last versioned release)
+npm run import-maps   # builds the terrain map from wago.tools (~1 GB the first time; cached in .cache/maps/)
 npm run dev           # http://localhost:5173
 npm test
 ```
@@ -34,7 +42,7 @@ npm test
 
 ## Run with Docker
 
-You only need [Docker](https://docs.docker.com/get-docker/) installed; you don't need Node. The image downloads the latest Questie data while it builds, so the build needs internet access.
+You only need [Docker](https://docs.docker.com/get-docker/) installed; you don't need Node. The image downloads the latest Questie data and map art while it builds, so the build needs internet access.
 
 ### With Docker Compose (easiest)
 

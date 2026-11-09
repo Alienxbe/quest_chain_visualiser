@@ -4,8 +4,20 @@ import { buildView, type ViewOptions } from './graph/subgraph'
 import { QuestGraph } from './components/QuestGraph'
 import { QuestPanel } from './components/QuestPanel'
 import { Sidebar } from './components/Sidebar'
+import { MapSidebar } from './components/MapSidebar'
+import { WorldMap } from './components/WorldMap'
 import { DEFAULT_ZONE } from './config'
-import type { QuestDb } from './types'
+import type { MapIndex, QuestDb, WorldMapData } from './types'
+
+type Tab = 'chains' | 'map'
+
+const loadJson = <T,>(path: string) =>
+  fetch(`${import.meta.env.BASE_URL}data/${path}`).then((r) => {
+    if (!r.ok) throw new Error(`HTTP ${r.status} — did you run "npm run import-maps"?`)
+    return r.json() as Promise<T>
+  })
+
+const tabFromHash = (): Tab => (window.location.hash === '#map' ? 'map' : 'chains')
 
 const CLASS_KEY = 'playerClass'
 
@@ -38,6 +50,38 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [options, setOptions] = useState<ViewOptions>(INITIAL)
   const [selected, setSelected] = useState<number | null>(null)
+  const [tab, setTab] = useState<Tab>(tabFromHash)
+  const [maps, setMaps] = useState<MapIndex | null>(null)
+  const [mapError, setMapError] = useState<string | null>(null)
+  const [worldId, setWorldId] = useState<number | null>(null)
+  const [worlds, setWorlds] = useState<Map<number, WorldMapData>>(new Map())
+  const [mapTarget, setMapTarget] = useState<{ areaId: number } | null>(null)
+
+  useEffect(() => {
+    const onHash = () => setTab(tabFromHash())
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  // The map data is only loaded once the Map tab is opened, one world at a time.
+  useEffect(() => {
+    if (tab !== 'map' || maps || mapError) return
+    loadJson<MapIndex>('maps.json')
+      .then((m) => {
+        setMaps(m)
+        setWorldId(m.worlds[0]?.id ?? null)
+      })
+      .catch((e) => setMapError(String(e)))
+  }, [tab, maps, mapError])
+
+  useEffect(() => {
+    if (worldId === null || worlds.has(worldId)) return
+    loadJson<WorldMapData>(`maps/${worldId}.json`)
+      .then((w) => setWorlds((all) => new Map(all).set(w.id, w)))
+      .catch((e) => setMapError(String(e)))
+  }, [worldId, worlds])
+
+  const zoneLevels = useMemo(() => new Map((db?.zoneLevels ?? []).map((z) => [z.id, z])), [db])
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}data/quests.json`)
@@ -75,9 +119,47 @@ export default function App() {
 
   const selectedQuest = selected !== null ? graph.quests.get(selected) : undefined
 
+  const tabs = (
+    <nav className="tabs segmented" aria-label="View">
+      <a href="#" className={tab === 'chains' ? 'active' : ''} aria-current={tab === 'chains' ? 'page' : undefined}>Quest chains</a>
+      <a href="#map" className={tab === 'map' ? 'active' : ''} aria-current={tab === 'map' ? 'page' : undefined}>Map</a>
+    </nav>
+  )
+
+  if (tab === 'map') {
+    return (
+      <div className="app">
+        {maps && worldId !== null ? (
+          <>
+            <MapSidebar
+              index={maps}
+              worldId={worldId}
+              onWorld={setWorldId}
+              world={worlds.get(worldId) ?? null}
+              levels={zoneLevels}
+              onPick={(areaId) => setMapTarget({ areaId })}
+              tabs={tabs}
+            />
+            <main className="canvas">
+              {worlds.has(worldId)
+                ? <WorldMap key={worldId} world={worlds.get(worldId)!} levels={zoneLevels} target={mapTarget} />
+                : <div className="empty">{mapError ? `Could not load map data: ${mapError}` : 'Loading map…'}</div>}
+            </main>
+          </>
+        ) : (
+          <>
+            <aside className="sidebar">{tabs}</aside>
+            <div className="empty">{mapError ? `Could not load map data: ${mapError}` : 'Loading map…'}</div>
+          </>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       <Sidebar
+        tabs={tabs}
         graph={graph}
         dungeons={db.dungeons ?? []}
         options={options}

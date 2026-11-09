@@ -55,6 +55,16 @@ export interface QuestDb {
   quests: Quest[]
   /** Dungeons and raids, sorted by lowest level (optional for older data files). */
   dungeons?: Dungeon[]
+  /** Typical mob levels per zone, keyed by area id (optional for older data files). */
+  zoneLevels?: ZoneLevels[]
+}
+
+export interface ZoneLevels {
+  /** Area id (AreaTable / Questie zone id). */
+  id: number
+  name: string
+  minLevel: number
+  maxLevel: number
 }
 
 export interface Dungeon {
@@ -82,4 +92,46 @@ export interface QuestEdge {
   kind: EdgeKind
   /** For progression edges: true = plain linear chain link, false = branching unlock. */
   chain: boolean
+}
+
+/** Index of the Map tab's worlds (public/data/maps.json, from scripts/import-maps.ts). */
+export interface MapIndex {
+  generatedAt: string
+  source: string
+  worlds: { id: number; name: string }[]
+}
+
+/**
+ * One seamless world map (public/data/maps/<id>.json). Positions are in terrain-chunk
+ * cells (~33 yards); a cell is `cellSize` px at `maxZoom`.
+ */
+export interface WorldMapData {
+  /** Map.db2 id (0 Eastern Kingdoms, 1 Kalimdor, ...). */
+  id: number
+  name: string
+  tileSize: number
+  maxZoom: number
+  cellSize: number
+  /** Image tiles that exist, per zoom: "x_y". */
+  tiles: Record<number, string[]>
+  /** Cells covered by terrain: [x0, y0, x1, y1]. */
+  extent: [number, number, number, number]
+  zones: ZoneShape[]
+}
+
+export interface ZoneShape {
+  /** AreaTable id (also Questie's zone id). */
+  areaId: number
+  uiMapId: number
+  name: string
+  /** A capital city rather than an outdoor zone. */
+  city?: boolean
+  /** Label position. */
+  x: number
+  y: number
+  bounds: [number, number, number, number]
+  /** Outline rings ([x0, y0, x1, y1, ...]); draw with the even-odd rule. */
+  rings: number[][]
+  /** Biggest first. */
+  subzones: { areaId: number; name: string; x: number; y: number; cells: number }[]
 }

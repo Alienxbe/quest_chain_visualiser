@@ -30,6 +30,14 @@ jobs:
       - run: npm run import-data
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Map data derived from game files (keyed by file id, so it never goes stale): keeping it
+      # between runs avoids re-downloading ~1 GB of terrain files from wago.tools every day.
+      - uses: actions/cache@v4
+        with:
+          path: .cache/maps/derived
+          key: map-textures-${{ github.run_id }}
+          restore-keys: map-textures-
+      - run: npm run import-maps
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

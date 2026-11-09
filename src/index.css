@@ -60,6 +60,7 @@ button, input, select { font: inherit; color: inherit; }
   flex-direction: column;
   gap: 16px;
 }
+.sidebar > * { flex-shrink: 0; }
 .sidebar h1 { font-size: 18px; margin: 0 0 4px; color: var(--accent); letter-spacing: 0.02em; }
 .sidebar header p { margin: 0; font-size: 12px; }
 .field-label {
@@ -265,7 +266,68 @@ button.link:hover { text-decoration: underline; }
   cursor: pointer;
 }
 
+/* ---------- tabs ---------- */
+.tabs a {
+  flex: 1;
+  text-align: center;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13px;
+}
+.tabs a + a { border-left: 1px solid var(--border); }
+.tabs a.active { background: var(--accent); color: #1b1e26; font-weight: 600; }
+
+/* ---------- world map ---------- */
+.world-map {
+  position: absolute;
+  inset: 0;
+  background: #1a3246; /* the sea */
+}
+.world-map.leaflet-container { background: #1a3246; font: inherit; }
+.world-map .leaflet-tile { image-rendering: auto; }
+.map-label, .leaflet-marker-icon.map-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  text-align: center;
+  color: #fff4d6;
+  text-shadow: 0 0 3px #000, 0 0 6px #000, 0 1px 2px #000;
+  line-height: 1.15;
+  pointer-events: none;
+}
+.zl-name { font-weight: 700; font-size: 13px; letter-spacing: 0.02em; }
+.zl-range { font-size: 11px; font-weight: 600; color: #ffd36b; }
+.map-label.city .zl-name { font-size: 11px; font-weight: 600; color: #d8e6ff; }
+.map-label.subzone { font-size: 12px; font-weight: 600; color: #f3ead2; }
+.zone-shape { cursor: zoom-in; }
+.leaflet-tooltip.zone-tooltip {
+  background: rgba(20, 22, 30, 0.92);
+  color: var(--text);
+  border: 1px solid #6b5a2a;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.leaflet-tooltip.zone-tooltip::before { display: none; }
+.tt-range { color: var(--accent); font-size: 12px; font-weight: 600; }
+.world-map .leaflet-bar a {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--border);
+}
+.world-map .leaflet-bar a:hover { background: var(--panel-2); }
+.map-zone-list { max-height: none; }
+
 @media (max-width: 760px) {
   .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .sidebar { max-height: 45vh; border-right: 0; border-bottom: 1px solid var(--border); }
+  .canvas { min-height: 55vh; }
 }

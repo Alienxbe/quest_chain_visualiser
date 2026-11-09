@@ -13,6 +13,7 @@ interface Props {
   onPickQuest: (id: number) => void
   stats: { nodes: number; edges: number }
   generatedAt: string
+  tabs: React.ReactNode
 }
 
 function dungeonLabel(d: Dungeon, quests: number): string {
@@ -21,7 +22,7 @@ function dungeonLabel(d: Dungeon, quests: number): string {
   return `${levels}${d.name} · ${quests} ${quests === 1 ? 'quest' : 'quests'}`
 }
 
-export function Sidebar({ graph, dungeons, options, onChange, onPickQuest, stats, generatedAt }: Props) {
+export function Sidebar({ graph, dungeons, options, onChange, onPickQuest, stats, generatedAt, tabs }: Props) {
   const [search, setSearch] = useState('')
   const [zoneQuery, setZoneQuery] = useState('')
   const [zoneOpen, setZoneOpen] = useState(false)
@@ -123,6 +124,7 @@ export function Sidebar({ graph, dungeons, options, onChange, onPickQuest, stats
           {new Date(generatedAt).toLocaleDateString()}
         </p>
       </header>
+      {tabs}
 
       <section>
         <label className="field-label" htmlFor="search">Find a quest</label>

@@ -1,5 +1,5 @@
 import { LuaFactory, type LuaEngine } from 'wasmoon'
-import type { Dungeon, Faction, Quest, QuestDb } from '../src/types.ts'
+import type { Dungeon, Faction, Quest, QuestDb, ZoneLevels } from '../src/types.ts'
 import type { BakedEntities, Row } from './baked.ts'
 
 /** Questie localization lookups (Lua): zone names and quest categories. */
@@ -28,6 +28,8 @@ interface Place {
   name: string
   zone?: number
   zones?: number[]
+  /** Number of spawn points per zone id. */
+  spawnCounts?: Record<number, number>
   /** NPCs only. */
   minLevel?: number
   maxLevel?: number
@@ -225,15 +227,25 @@ function field<T = unknown>(row: Row, index: number): T | undefined {
   return v === null || v === undefined ? undefined : (v as T)
 }
 
-/** Zone ids of a spawn list: a map keyed by zone id, or a sparse array from the Lua export. */
-function spawnZones(v: unknown): number[] {
-  if (Array.isArray(v)) return v.flatMap((x, i) => (x === null || x === undefined ? [] : [i + 1]))
-  if (v && typeof v === 'object') return Object.keys(v).map(Number).filter(Number.isFinite)
-  return []
+/** Spawn points per zone id: a map keyed by zone id, or a sparse array from the Lua export. */
+function spawnCounts(v: unknown): Record<number, number> {
+  const counts: Record<number, number> = {}
+  const add = (zone: number, list: unknown) => {
+    if (Number.isFinite(zone)) counts[zone] = Array.isArray(list) ? list.length : 0
+  }
+  if (Array.isArray(v)) v.forEach((x, i) => x !== null && x !== undefined && add(i + 1, x))
+  else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) add(Number(k), x)
+  return counts
 }
 
 function place(row: Row, f: { name: number; spawns: number; zoneID: number }): Place {
-  return { name: field<string>(row, f.name)!, zone: field<number>(row, f.zoneID), zones: spawnZones(field(row, f.spawns)) }
+  const counts = spawnCounts(field(row, f.spawns))
+  return {
+    name: field<string>(row, f.name)!,
+    zone: field<number>(row, f.zoneID),
+    zones: Object.keys(counts).map(Number),
+    spawnCounts: counts,
+  }
 }
 
 /** Maps entity rows and the l10n lookups into the shape the conversion works on. */
@@ -530,6 +542,41 @@ export function dungeonList(x: Extracted, quests: Quest[]): Dungeon[] {
     || a.name.localeCompare(b.name))
 }
 
+/** Mobs whose level range is wider than this scale with the player or are oddities. */
+const MAX_LEVEL_SPREAD = 4
+
+/**
+ * Typical mob levels of each named, non-dungeon zone: the 5th to 95th percentile
+ * of hostile, normal-rank mob levels, weighted by spawn count. Critters (level 1),
+ * mobs with very few spawns and level-scaling mobs are left out.
+ */
+export function zoneLevels(x: Extracted): ZoneLevels[] {
+  const dungeonIds = new Set(x.dungeonIds ?? [])
+  const byZone = new Map<number, { lo: number[]; hi: number[] }>()
+  for (const npc of Object.values(x.npcs)) {
+    const { minLevel: lo, maxLevel: hi } = npc
+    if (npc.friendly || npc.rank || !lo || !hi || lo <= 1 || hi > 63 || hi - lo > MAX_LEVEL_SPREAD) continue
+    for (const [zone, n] of Object.entries(npc.spawnCounts ?? {})) {
+      if (n < 3) continue
+      const id = Number(zone)
+      if (!byZone.has(id)) byZone.set(id, { lo: [], hi: [] })
+      const levels = byZone.get(id)!
+      for (let i = 0; i < n; i++) {
+        levels.lo.push(lo)
+        levels.hi.push(hi)
+      }
+    }
+  }
+  const pick = (a: number[], q: number) => a.sort((m, n) => m - n)[Math.min(a.length - 1, Math.floor(a.length * q))]
+  const list: ZoneLevels[] = []
+  for (const [id, { lo, hi }] of byZone) {
+    const name = x.zones[id]
+    if (!name || dungeonIds.has(id) || lo.length < 10) continue
+    list.push({ id, name, minLevel: pick(lo, 0.05), maxLevel: pick(hi, 0.95) })
+  }
+  return list.sort((a, b) => a.id - b.id)
+}
+
 export async function convertQuestie(
   input: ConvertInput,
   options: ConvertOptions & { source?: string } = {},
@@ -541,5 +588,6 @@ export async function convertQuestie(
     source: options.source ?? 'Questie QuestieDB (GPL-3.0) — https://github.com/Questie/QuestieDB',
     quests,
     dungeons: dungeonList(x, quests),
+    zoneLevels: zoneLevels(x),
   }
 }

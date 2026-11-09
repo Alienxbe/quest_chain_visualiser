@@ -1,10 +1,10 @@
-# Build stage: download the Questie data and build the static site.
+# Build stage: download the Questie data and the map art, and build the static site.
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-RUN npm run import-data && npm run build
+RUN npm run import-data && npm run import-maps && npm run build
 
 # Serve stage: plain nginx serving the static files.
 FROM nginx:alpine

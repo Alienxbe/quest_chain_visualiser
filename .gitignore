@@ -26,3 +26,6 @@ dist-ssr
 # Questie download cache and generated data
 .cache
 public/data/quests.json
+public/data/maps.json
+public/data/maps/
+public/data/terrain/
