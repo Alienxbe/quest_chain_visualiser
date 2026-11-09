@@ -41,7 +41,7 @@ function QuestNode({ data }: NodeProps<QuestFlowNode>) {
   ].filter(Boolean).join(' ')
   return (
     <div className={classes} style={classStyle(classColour)} title={q.objective}>
-      <Handle type="target" position={Position.Left} />
+      <Handle type="target" position={Position.Left} isConnectable={false} isConnectableStart={false} />
       <div className="qn-title">
         <span className="qn-level">{q.level || '?'}</span>
         <span className="qn-name">{q.name}</span>
@@ -53,7 +53,7 @@ function QuestNode({ data }: NodeProps<QuestFlowNode>) {
         {view.forClass && <span className="badge class-badge" title="Quest for your class">class</span>}
         {q.repeatable && <span className="badge" title="Repeatable">↻</span>}
       </div>
-      <Handle type="source" position={Position.Right} />
+      <Handle type="source" position={Position.Right} isConnectable={false} isConnectableStart={false} />
     </div>
   )
 }
@@ -65,7 +65,7 @@ function ChainNode({ data }: NodeProps<QuestFlowNode>) {
   const cls = `quest-node chain-node faction-${first.faction}${data.view.forClass ? ' for-class' : ''}`
   return (
     <div className={cls} style={classStyle(data.classColour)}>
-      <Handle type="target" position={Position.Left} />
+      <Handle type="target" position={Position.Left} isConnectable={false} isConnectableStart={false} />
       <div className="qn-title">
         <span className="qn-level">{first.level}–{last.level}</span>
         <span className="qn-name">{first.name}</span>
@@ -75,7 +75,7 @@ function ChainNode({ data }: NodeProps<QuestFlowNode>) {
         <span className="qn-sub">→ {last.name}</span>
         <span className="badge">click to expand</span>
       </div>
-      <Handle type="source" position={Position.Right} />
+      <Handle type="source" position={Position.Right} isConnectable={false} isConnectableStart={false} />
     </div>
   )
 }
