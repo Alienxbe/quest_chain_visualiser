@@ -231,6 +231,18 @@ button.link:hover { text-decoration: underline; }
 .panel li { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .panel li .link { display: inline-flex; align-items: center; gap: 6px; }
 .objective { background: var(--panel-2); border-radius: 6px; padding: 8px 10px; font-style: italic; }
+/* WoW's experience bar purple (RGB 0.58, 0, 0.55). */
+.xp {
+  background: #940089;
+  color: #fff;
+  font-weight: 600;
+  font-size: 12px;
+  border-radius: 4px;
+  padding: 1px 8px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+.rep-gain { color: #4caf50; font-weight: 600; }
+.rep-loss { color: #e05555; font-weight: 600; }
 .tag { font-size: 10px; color: var(--edge-unlock); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
 .actions { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
 .actions button {

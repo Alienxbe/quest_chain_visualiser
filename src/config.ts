@@ -1,9 +1,6 @@
-/**
- * Link used for "Open on Wowhead". Wowhead's WoW Forever section URL is not
- * confirmed yet; Classic Era pages cover the original quests. Change this if
- * Wowhead (or another site) adds a Forever database.
- */
-export const QUEST_LINK = (id: number) => `https://www.wowhead.com/classic/quest=${id}`
+/** Wowhead's WoW Forever database. Its tooltip script also shows Forever tooltips for these links. */
+export const QUEST_LINK = (id: number) => `https://www.wowhead.com/forever/quest=${id}`
+export const ITEM_LINK = (id: number) => `https://www.wowhead.com/forever/item=${id}`
 
 export const DEFAULT_ZONE = 'Northshire Valley'
 

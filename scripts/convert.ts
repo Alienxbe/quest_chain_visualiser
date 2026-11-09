@@ -1,14 +1,26 @@
-import { LuaFactory } from 'wasmoon'
+import { LuaFactory, type LuaEngine } from 'wasmoon'
 import type { Dungeon, Faction, Quest, QuestDb } from '../src/types.ts'
+import type { BakedEntities, Row } from './baked.ts'
 
-/** Raw Lua source files from Questie. */
-export interface RawSources {
-  quests: string
-  npcs: string
-  objects: string
-  items: string
+/** Questie localization lookups (Lua): zone names and quest categories. */
+export interface LookupSources {
   zones: string
   categories: string
+}
+
+/** Everything the converter needs. */
+export interface ConvertInput extends LookupSources {
+  /** Quest/NPC/object/item rows from the baked release DB (or entitiesFromLua). */
+  entities: BakedEntities
+  /** Fallback zone names for ids the l10n lookups don't have (new Forever zones). */
+  extraZoneNames?: Record<number, string>
+}
+
+export interface ConvertOptions {
+  /** Faction id -> name, for reputation rewards. */
+  factionNames?: Record<number, string>
+  /** Quest id -> base XP reward. */
+  questXp?: Record<number, number>
 }
 
 /** An NPC or object: its name, main zone and every zone it spawns in. */
@@ -24,12 +36,12 @@ interface Place {
   friendly?: string
 }
 
-/** Shape produced by EXTRACT_LUA (see below). */
+/** Entity data in the shape the conversion works on. */
 interface Extracted {
   quests: RawQuest[]
   npcs: Record<string, Place>
   objects: Record<string, Place>
-  items: Record<string, { name: string; npcDrops?: number[]; objectDrops?: number[] }>
+  items: Record<string, { name: string; npcDrops?: number[]; objectDrops?: number[]; questRewards?: number[] }>
   zones: Record<string, string>
   categories: Record<string, string>
   /** Area ids Questie files under dungeons & raids (zoneCategoryLookup[9]). */
@@ -59,7 +71,24 @@ interface RawQuest {
   breadcrumbForQuestId?: number
   breadcrumbs?: number[]
   availableStartingWith?: number
+  /** {{factionId, value}, ...}. */
+  reputationReward?: unknown[]
 }
+
+/**
+ * Field positions, from QuestieDB's schemas (src/meta/*Meta.lua, same as the
+ * questKeys/npcKeys/... tables in the raw data files).
+ */
+const QUEST_FIELDS = {
+  name: 1, startedBy: 2, finishedBy: 3, requiredLevel: 4, questLevel: 5, requiredRaces: 6,
+  requiredClasses: 7, objectivesText: 8, objectives: 10, preQuestGroup: 12, preQuestSingle: 13,
+  childQuests: 14, exclusiveTo: 16, zoneOrSort: 17, requiredSourceItems: 21, specialFlags: 24,
+  parentQuest: 25, reputationReward: 26, breadcrumbForQuestId: 27, breadcrumbs: 28,
+  availableStartingWith: 34,
+} as const
+const NPC_FIELDS = { name: 1, minLevel: 4, maxLevel: 5, rank: 6, spawns: 7, zoneID: 9, friendlyToFaction: 13 } as const
+const OBJECT_FIELDS = { name: 1, spawns: 4, zoneID: 5 } as const
+const ITEM_FIELDS = { name: 1, npcDrops: 2, objectDrops: 3, questRewards: 6 } as const
 
 /** Stubs for the addon environment so the Questie files can run outside the game. */
 const PRELUDE_LUA = `
@@ -75,16 +104,9 @@ QuestieLoader = {
 __modules = modules
 `
 
-/**
- * Runs inside Lua after all data files are loaded. Picks the fields we need,
- * looking up field positions by name from the DB's own *Keys tables,
- * and returns everything as one JSON string.
- */
-const EXTRACT_LUA = `
-local QuestieDB = __modules.QuestieDB
-local l10n = __modules.l10n
-
-local function enc(v)
+/** Lua → JSON encoder. Tables with only positive integer keys become (sparse) arrays. */
+const ENCODE_LUA = `
+function __enc(v)
   local t = type(v)
   if t == 'nil' then return 'null'
   elseif t == 'boolean' then return tostring(v)
@@ -111,66 +133,21 @@ local function enc(v)
     end
     local parts = {}
     if isArray then
-      for i = 1, maxn do parts[i] = enc(v[i]) end
+      for i = 1, maxn do parts[i] = __enc(v[i]) end
       return '[' .. table.concat(parts, ',') .. ']'
     end
     for k, val in pairs(v) do
-      parts[#parts + 1] = enc(tostring(k)) .. ':' .. enc(val)
+      parts[#parts + 1] = __enc(tostring(k)) .. ':' .. __enc(val)
     end
     return '{' .. table.concat(parts, ',') .. '}'
   end
   return 'null'
 end
+`
 
-local QK = QuestieDB.questKeys
-local wanted = {
-  'name', 'startedBy', 'finishedBy', 'objectives', 'requiredSourceItems', 'requiredLevel', 'questLevel', 'requiredRaces', 'requiredClasses',
-  'objectivesText', 'preQuestGroup', 'preQuestSingle', 'childQuests', 'exclusiveTo',
-  'zoneOrSort', 'specialFlags', 'parentQuest', 'breadcrumbForQuestId', 'breadcrumbs',
-  'availableStartingWith',
-}
-local quests = {}
-for id, q in pairs(load(QuestieDB.questData)()) do
-  local out = { id = id }
-  for _, key in ipairs(wanted) do
-    if QK[key] then out[key] = q[QK[key]] end
-  end
-  quests[#quests + 1] = out
-end
-
--- Name, main zone and the list of zones an NPC/object spawns in.
-local function places(data, keys)
-  local res = {}
-  if not data then return res end
-  for id, row in pairs(load(data)()) do
-    local spawnZones = {}
-    if keys.spawns and type(row[keys.spawns]) == 'table' then
-      for z in pairs(row[keys.spawns]) do spawnZones[#spawnZones + 1] = z end
-    end
-    res[tostring(id)] = {
-      name = row[keys.name], zone = row[keys.zoneID], zones = spawnZones,
-      minLevel = keys.minLevel and row[keys.minLevel],
-      maxLevel = keys.maxLevel and row[keys.maxLevel],
-      rank = keys.rank and row[keys.rank],
-      friendly = keys.friendlyToFaction and row[keys.friendlyToFaction],
-    }
-  end
-  return res
-end
-
-local function items(data, keys)
-  local res = {}
-  if not data then return res end
-  for id, row in pairs(load(data)()) do
-    res[tostring(id)] = {
-      name = row[keys.name],
-      npcDrops = keys.npcDrops and row[keys.npcDrops],
-      objectDrops = keys.objectDrops and row[keys.objectDrops],
-    }
-  end
-  return res
-end
-
+/** Zone names, quest categories and dungeon ids from Questie's l10n lookups. */
+const LOOKUPS_LUA = `
+local l10n = __modules.l10n
 local zones = {}
 for _, continent in pairs(l10n.zoneLookup or {}) do
   for id, name in pairs(continent) do zones[tostring(id)] = name end
@@ -189,17 +166,129 @@ for id in pairs((l10n.zoneCategoryLookup or {})[9] or {}) do dungeonIds[#dungeon
 zones['19'] = zones['19'] or "Zul'Gurub"
 local categories = {}
 for id, name in pairs(l10n.questCategoryLookup or {}) do categories[tostring(id)] = name end
+return __enc({ zones = zones, categories = categories, dungeonIds = dungeonIds })
+`
 
-return enc({
-  quests = quests,
-  npcs = places(QuestieDB.npcData, QuestieDB.npcKeys),
-  objects = places(QuestieDB.objectData, QuestieDB.objectKeys),
-  items = items(QuestieDB.itemData, QuestieDB.itemKeys),
-  zones = zones,
-  categories = categories,
-  dungeonIds = dungeonIds,
+/** Raw (unbaked) QuestieDB data files: the rows as written, keyed by id. */
+const ENTITIES_LUA = `
+local QuestieDB = __modules.QuestieDB
+local function rows(data)
+  local out = {}
+  if data then for id, row in pairs(load(data)()) do out[tostring(id)] = row end end
+  return out
+end
+return __enc({
+  quests = rows(QuestieDB.questData),
+  npcs = rows(QuestieDB.npcData),
+  objects = rows(QuestieDB.objectData),
+  items = rows(QuestieDB.itemData),
 })
 `
+
+async function runLua<T>(sources: Record<string, string>, script: string): Promise<T> {
+  const lua: LuaEngine = await new LuaFactory().createEngine()
+  try {
+    await lua.doString(PRELUDE_LUA)
+    await lua.doString(ENCODE_LUA)
+    for (const [name, code] of Object.entries(sources)) {
+      try {
+        await lua.doString(code)
+      } catch (err) {
+        throw new Error(`Failed to run ${name} Lua file: ${err}`)
+      }
+    }
+    return JSON.parse((await lua.doString(script)) as string) as T
+  } finally {
+    lua.global.close()
+  }
+}
+
+/**
+ * Loads raw QuestieDB Lua data files (questData, npcData, ...) into rows. The release
+ * build is the real source; this reads the old-style files, which the tests use.
+ */
+export async function entitiesFromLua(raw: { quests: string; npcs: string; objects: string; items: string }): Promise<BakedEntities> {
+  const parsed = await runLua<Record<keyof BakedEntities, Record<string, unknown>>>(raw, ENTITIES_LUA)
+  // An empty Lua table encodes as [] rather than {}.
+  const asRows = (v: unknown) => (Array.isArray(v) ? {} : v) as Record<string, Row>
+  return {
+    quests: asRows(parsed.quests),
+    npcs: asRows(parsed.npcs),
+    objects: asRows(parsed.objects),
+    items: asRows(parsed.items),
+  }
+}
+
+/** Field `index` (1-based) of a row, or undefined when absent. */
+function field<T = unknown>(row: Row, index: number): T | undefined {
+  const v = row[index - 1]
+  return v === null || v === undefined ? undefined : (v as T)
+}
+
+/** Zone ids of a spawn list: a map keyed by zone id, or a sparse array from the Lua export. */
+function spawnZones(v: unknown): number[] {
+  if (Array.isArray(v)) return v.flatMap((x, i) => (x === null || x === undefined ? [] : [i + 1]))
+  if (v && typeof v === 'object') return Object.keys(v).map(Number).filter(Number.isFinite)
+  return []
+}
+
+function place(row: Row, f: { name: number; spawns: number; zoneID: number }): Place {
+  return { name: field<string>(row, f.name)!, zone: field<number>(row, f.zoneID), zones: spawnZones(field(row, f.spawns)) }
+}
+
+/** Maps entity rows and the l10n lookups into the shape the conversion works on. */
+export async function extract(input: ConvertInput): Promise<Extracted> {
+  const lookups = await runLua<Pick<Extracted, 'zones' | 'categories' | 'dungeonIds'>>(
+    { zones: input.zones, categories: input.categories }, LOOKUPS_LUA)
+  // Lua encodes an empty table as [], so normalise those.
+  const obj = <T>(v: unknown) => (Array.isArray(v) && !v.length ? {} : v) as Record<string, T>
+  const { entities } = input
+
+  const quests: RawQuest[] = Object.entries(entities.quests).map(([id, row]) => {
+    const q: RawQuest & Record<string, unknown> = { id: Number(id) }
+    for (const [name, index] of Object.entries(QUEST_FIELDS)) {
+      const v = field(row, index)
+      if (v !== undefined) q[name] = v
+    }
+    return q
+  })
+
+  const npcs: Record<string, Place> = {}
+  for (const [id, row] of Object.entries(entities.npcs)) {
+    npcs[id] = {
+      ...place(row, NPC_FIELDS),
+      minLevel: field<number>(row, NPC_FIELDS.minLevel),
+      maxLevel: field<number>(row, NPC_FIELDS.maxLevel),
+      rank: field<number>(row, NPC_FIELDS.rank),
+      friendly: field<string>(row, NPC_FIELDS.friendlyToFaction),
+    }
+  }
+  const objects: Record<string, Place> = {}
+  for (const [id, row] of Object.entries(entities.objects)) objects[id] = place(row, OBJECT_FIELDS)
+
+  const items: Extracted['items'] = {}
+  for (const [id, row] of Object.entries(entities.items)) {
+    items[id] = {
+      name: field<string>(row, ITEM_FIELDS.name)!,
+      npcDrops: field(row, ITEM_FIELDS.npcDrops),
+      objectDrops: field(row, ITEM_FIELDS.objectDrops),
+      questRewards: field(row, ITEM_FIELDS.questRewards),
+    }
+  }
+
+  const zones = obj<string>(lookups.zones)
+  for (const [id, name] of Object.entries(input.extraZoneNames ?? {})) zones[id] ??= name
+
+  return {
+    quests,
+    npcs,
+    objects,
+    items,
+    zones,
+    categories: obj<string>(lookups.categories),
+    dungeonIds: lookups.dungeonIds ?? [],
+  }
+}
 
 const ALLIANCE_LO = 1 | 4 | 8 | 64 | 1024 | 2097152 | 16777216
 const HORDE_LO = 2 | 16 | 32 | 128 | 256 | 512 | 33554432
@@ -274,25 +363,52 @@ export function questDungeon(x: Extracted, r: RawQuest, dungeonIds: ReadonlySet<
   return undefined
 }
 
-export async function extract(raw: RawSources): Promise<Extracted> {
-  const lua = await new LuaFactory().createEngine()
-  try {
-    await lua.doString(PRELUDE_LUA)
-    for (const [name, code] of Object.entries(raw)) {
-      try {
-        await lua.doString(code)
-      } catch (err) {
-        throw new Error(`Failed to run ${name} Lua file: ${err}`)
-      }
-    }
-    const json = (await lua.doString(EXTRACT_LUA)) as string
-    return JSON.parse(json) as Extracted
-  } finally {
-    lua.global.close()
+/**
+ * Parses Questie's faction DBC export (faction_classic.csv) into id -> name.
+ * Only the ID and Name_lang columns are used.
+ */
+export function parseFactionCsv(csv: string): Record<number, string> {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let quoted = false
+  for (let i = 0; i < csv.length; i++) {
+    const c = csv[i]
+    if (quoted) {
+      if (c === '"' && csv[i + 1] === '"') { field += '"'; i++ }
+      else if (c === '"') quoted = false
+      else field += c
+    } else if (c === '"') quoted = true
+    else if (c === ',') { row.push(field); field = '' }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && csv[i + 1] === '\n') i++
+      row.push(field); rows.push(row); row = []; field = ''
+    } else field += c
   }
+  if (field || row.length) { row.push(field); rows.push(row) }
+
+  const [header, ...data] = rows
+  const idCol = header?.indexOf('ID') ?? -1
+  const nameCol = header?.indexOf('Name_lang') ?? -1
+  const names: Record<number, string> = {}
+  if (idCol < 0 || nameCol < 0) return names
+  for (const r of data) {
+    const id = Number(r[idCol])
+    if (Number.isInteger(id) && r[nameCol]) names[id] = r[nameCol]
+  }
+  return names
 }
 
-export function normalise(x: Extracted): Quest[] {
+export function normalise(x: Extracted, { factionNames = {}, questXp = {} }: ConvertOptions = {}): Quest[] {
+  const rewardItems = new Map<number, { id: number; name: string }[]>()
+  for (const [itemId, item] of Object.entries(x.items)) {
+    for (const questId of ids(item.questRewards)) {
+      if (!rewardItems.has(questId)) rewardItems.set(questId, [])
+      rewardItems.get(questId)!.push({ id: Number(itemId), name: item.name ?? `Item #${itemId}` })
+    }
+  }
+  for (const list of rewardItems.values()) list.sort((a, b) => a.id - b.id)
+
   const dungeonIds = new Set(x.dungeonIds ?? [])
   const zoneName = (id: number | undefined): string | undefined => {
     if (id === undefined || id === 0) return undefined
@@ -334,6 +450,9 @@ export function normalise(x: Extracted): Quest[] {
       parent: r.parentQuest || undefined,
       startingWith: r.availableStartingWith || undefined,
       repeatable: ((r.specialFlags ?? 0) & 1) === 1,
+      xp: questXp[r.id] || undefined,
+      rewardItems: rewardItems.get(r.id),
+      reputation: reputationRewards(r.reputationReward, factionNames),
     })
   }
 
@@ -350,6 +469,15 @@ export function normalise(x: Extracted): Quest[] {
   }
 
   return [...quests.values()].sort((a, b) => a.id - b.id)
+}
+
+function reputationRewards(v: unknown, names: Record<number, string>) {
+  if (!Array.isArray(v)) return undefined
+  const list = v.flatMap((e) =>
+    Array.isArray(e) && typeof e[0] === 'number' && typeof e[1] === 'number' && e[1] !== 0
+      ? [{ faction: names[e[0]] ?? `Faction #${e[0]}`, value: e[1] }]
+      : [])
+  return list.length ? list : undefined
 }
 
 const ELITE_RANK = 1
@@ -402,12 +530,15 @@ export function dungeonList(x: Extracted, quests: Quest[]): Dungeon[] {
     || a.name.localeCompare(b.name))
 }
 
-export async function convertQuestie(raw: RawSources): Promise<QuestDb> {
-  const x = await extract(raw)
-  const quests = normalise(x)
+export async function convertQuestie(
+  input: ConvertInput,
+  options: ConvertOptions & { source?: string } = {},
+): Promise<QuestDb> {
+  const x = await extract(input)
+  const quests = normalise(x, options)
   return {
     generatedAt: new Date().toISOString(),
-    source: 'Questie QuestieDB (GPL-3.0) — https://github.com/Questie/QuestieDB',
+    source: options.source ?? 'Questie QuestieDB (GPL-3.0) — https://github.com/Questie/QuestieDB',
     quests,
     dungeons: dungeonList(x, quests),
   }

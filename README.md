@@ -14,11 +14,15 @@ Grey arrows are plain one-to-one chain links. Gold arrows are branching unlocks.
 
 Quest data comes from the open-source [Questie](https://github.com/Questie/QuestieDB) addon database (GPL-3.0), which has a WoW Forever-specific quest DB with prerequisite fields. `npm run import-data` downloads it and converts it to `public/data/quests.json`.
 
+The importer uses QuestieDB's Forever **release build**, not the raw `data/Forever` files, because Questie's frequent Forever fixes are only applied in the build. By default it takes the rolling `preview` release, which is rebuilt from QuestieDB's latest commit; pass `-- --stable` to use the latest versioned release instead. Quest XP comes from the same build (Questie's QuestXP tables, partly measured in-game). Reward items and reputation are shown too. Money rewards aren't in Questie's data.
+
+Item and quest links point to [Wowhead's Forever database](https://www.wowhead.com/forever/), and Wowhead's tooltip script shows the in-game tooltip on hover.
+
 ## Run locally
 
 ```sh
 npm install
-npm run import-data   # downloads Questie data (add -- --offline to reuse .cache/)
+npm run import-data   # downloads Questie data (-- --offline reuses .cache/, -- --stable uses the last versioned release)
 npm run dev           # http://localhost:5173
 npm test
 ```

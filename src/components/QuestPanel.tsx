@@ -1,5 +1,6 @@
+import { useEffect } from 'react'
 import type { QuestGraph } from '../graph/build'
-import { classList, QUEST_LINK } from '../config'
+import { classList, ITEM_LINK, QUEST_LINK } from '../config'
 import type { EdgeKind, Quest } from '../types'
 
 interface Props {
@@ -26,6 +27,13 @@ function unlockNote(kind: EdgeKind, target: Quest | undefined): string | undefin
   return KIND_LABEL[kind]
 }
 
+declare global {
+  interface Window {
+    /** Set by Wowhead's tooltips.js (loaded in index.html). */
+    $WowheadPower?: { refreshLinks: () => void }
+  }
+}
+
 const FACTION = { A: 'Alliance', H: 'Horde', B: 'Both factions' }
 
 export function QuestPanel({ graph, quest: q, onSelect, onFocus, onClose }: Props) {
@@ -50,6 +58,11 @@ export function QuestPanel({ graph, quest: q, onSelect, onFocus, onClose }: Prop
   const exclusive = (graph.exclusive.get(q.id) ?? []).map((e) => (e.source === q.id ? e.target : e.source))
   const classes = classList(q.classes)
 
+  // Let Wowhead colour and iconize the newly rendered item links.
+  useEffect(() => {
+    window.$WowheadPower?.refreshLinks()
+  }, [q.id])
+
   return (
     <aside className="panel">
       <button className="close" onClick={onClose} aria-label="Close">×</button>
@@ -61,6 +74,32 @@ export function QuestPanel({ graph, quest: q, onSelect, onFocus, onClose }: Prop
       </p>
       <p><b>{q.zone}</b>{q.dungeon && <> · dungeon: <b>{q.dungeon}</b></>}{q.starters.length > 0 && <> — from {q.starters.join(', ')}</>}</p>
       {q.objective && <p className="objective">{q.objective}</p>}
+
+      {(q.xp || q.rewardItems?.length || q.reputation?.length) ? (
+        <>
+          <h3>Rewards</h3>
+          {/* Keyed by quest: Wowhead edits these links, so remount rather than patch them. */}
+          <ul key={q.id}>
+            {q.xp ? (
+              <li>
+                <span className="xp" title="Base XP at the quest's level; less if you are higher level">
+                  {q.xp.toLocaleString('en-US')} XP
+                </span>
+              </li>
+            ) : null}
+            {q.rewardItems?.map((item) => (
+              <li key={`item-${item.id}`}>
+                <a href={ITEM_LINK(item.id)} target="_blank" rel="noreferrer" data-wh-icon-size="small">{item.name}</a>
+              </li>
+            ))}
+            {q.reputation?.map((r) => (
+              <li key={`rep-${r.faction}`}>
+                <span className={r.value < 0 ? 'rep-loss' : 'rep-gain'}>{r.value > 0 ? '+' : ''}{Math.round(r.value)}</span> {r.faction}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
 
       <div className="actions">
         <button onClick={() => onFocus(q.id)}>Show whole tree</button>

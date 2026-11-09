@@ -31,6 +31,22 @@ export interface Quest {
   /** Available once that quest is in the log OR turned in. */
   startingWith?: number
   repeatable: boolean
+  /** Base XP reward at the quest's level (Questie's QuestXP data, partly from in-game traces). */
+  xp?: number
+  /** Items the quest can reward (Questie doesn't say which are a choice). */
+  rewardItems?: RewardItem[]
+  /** Reputation gained on completion. */
+  reputation?: ReputationReward[]
+}
+
+export interface RewardItem {
+  id: number
+  name: string
+}
+
+export interface ReputationReward {
+  faction: string
+  value: number
 }
 
 export interface QuestDb {
